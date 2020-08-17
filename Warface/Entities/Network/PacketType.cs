@@ -76,8 +76,8 @@ namespace Warface.Entities.Network
 
 		public static Packet EncryptPacket(this Packet p, WarfaceCryptoProvider provider)
 		{
-			if (p.Type != PacketType.Encrypted)
-				throw new ArgumentException("Cannot encrypt packet, because it isn't encrypted.");
+			if (p.Type != PacketType.Plain)
+				throw new ArgumentException("Cannot encrypt packet, because its not valid packet to encrypt.");
 
 			if (p.BufferSize == 0)
 				throw new ArgumentException("Cannot encrypt packet, because it has zero length.");

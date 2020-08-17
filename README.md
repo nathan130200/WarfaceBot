@@ -40,7 +40,7 @@ Follow these steps to build native library:
 1. Clone the repository
 2. Navigate to repository directory using an terminal/command prompt.
 3. Then navigate to `Warface.Native` directory.
-	- And create yet another directory named `build`
+	- And create yet another directory named `build` and navigate to that.
 	
 	Depending on platform you need specifiy specific CMake generator, to creare appropriated building scripts.
 

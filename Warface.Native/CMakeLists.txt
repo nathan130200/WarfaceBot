@@ -11,7 +11,8 @@ IF(${WORDS_BIGENDIAN})
 ENDIF()
 
 add_library(Warface.Native SHARED
-	"src/DllMain.cpp"
+	"src/Crypto.cpp"
+	"src/WakeKey.cpp"
 )
 
 target_include_directories(Warface.Native PUBLIC

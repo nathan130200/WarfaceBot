@@ -1,6 +1,9 @@
 # Created by https://www.gitignore.io/api/cake,xcode,rider,linux,macos,csharp,windows,eclipse,intellij,jetbrains,dotnetcore,monodevelop,visualstudio,visualstudiocode
 # Edit at https://www.gitignore.io/?templates=cake,xcode,rider,linux,macos,csharp,windows,eclipse,intellij,jetbrains,dotnetcore,monodevelop,visualstudio,visualstudiocode
 
+### VSCode ###
+.vscode
+
 ### Cake ###
 tools/*
 !tools/packages.config

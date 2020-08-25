@@ -30,32 +30,26 @@ Using native p/invoke for that is ultrafast and simple, you just need build manu
 - This use an XMPP library (also that i've ported to .net core) [AgsXMPP.NetCore](https://github.com/nathan130200/AgsXMPP) that have an built-in xml parser.
 
 # Building Required Native Library
-
-You just need only a thing: CMake! :tada::tada::tada:
-
 CMake is best building system that i used to implement native library in multiplatform (Windows/MacOs/Unix).
 
 Follow these steps to build native library:
+```
+$ git clone https://github.com/nathan130200/WarfaceBot/
+$ cd ./Warface.Native
+$ mkdir build
+$ cd build
+$ cmake .. -G "<Generator>"
+$ cmake build .
+$ cd ./<Configuration>
+```
 
-1. Clone the repository
-2. Navigate to repository directory using an terminal/command prompt.
-3. Then navigate to `Warface.Native` directory.
-	- And create yet another directory named `build` and navigate to that.
+- CMake Generators are platform specific.
+	- <b>Windows</b>: `Visual Studio [msvc] [vs] [arch]` or you can use NMake (compile makefile in windows) by using `NMake Files`
+		- Tested with VS2019 (Generator: `Visual Studio 16 2019`) and working!
 	
-	Depending on platform you need specifiy specific CMake generator, to creare appropriated building scripts.
+	- <b>Unix</b>: `Unix Makefiles`
 
-	- Windows:
-		- `cmake .. -G "Visual Studio XX"` will generate windows/visual studio build files.
-			- When `XX` your visual studio msvc version.
-			
-	- MacOS/Unix:
-		- `cmake .. -G "Unix Makefiles"` will generate unix makefile to build.
-	
-4. After generate build files, you just execute:<br>
-	- `cmake --build`
-	
-5. Then you can grab generated library file `libWarface.Native.so` or `Warface.Native.dll` depending on your OS, and put in same folder `Warface.Bot.dll` is located (grabbed from releases) and now you can use/execute bot.
-
+> Important notes: Same platform you build the library must be same from bot. For example: When builing bot in x64 platform, native library must be build with x64. Or .net will trown an exception because library and native library are different arch.
 
 # Contributing
 - Need known at least basic C#/.NET Development (specific with .NET Core)

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -7,6 +6,9 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using AgsXMPP;
 using AgsXMPP.Protocol;
+using AgsXMPP.Protocol.Sasl;
+using AgsXMPP.Protocol.Stream;
+using AgsXMPP.Protocol.Tls;
 using AgsXMPP.Xml;
 using AgsXMPP.Xml.Dom;
 using Warface.Entities.Network;
@@ -21,20 +23,20 @@ namespace Warface
 		internal readonly AsyncEvent<WarfaceClientEventArgs> _disconnectedEvent = new AsyncEvent<WarfaceClientEventArgs>();
 		internal readonly AsyncEvent<WarfaceClientErrorEventArgs> _erroredEvent = new AsyncEvent<WarfaceClientErrorEventArgs>();
 
-		internal WarfaceClientConfiguration config;
-		internal WarfaceCryptoProvider crypto;
-		internal StreamParser parser;
-		internal Socket socket;
-		internal Stream stream;
-
-		protected volatile bool closed, paused;
+		internal WarfaceClientConfiguration Config;
+		internal WarfaceCryptoProvider Crypto;
+		internal StreamParser Parser;
+		internal Socket Socket;
+		internal Stream Stream;
 
 		public string StreamId { get; private set; }
 		public string StreamVersion { get; private set; }
-		public bool IsConnected => !this.closed && !this.paused;
+		public bool IsConnected => !this.IsClosed && !this.IsPaused;
 		public bool IsAuthenticated { get; private set; }
-		public bool IsTlsStarted => this.config.UseTls && this.stream is SslStream;
+		public bool IsTlsStarted => this.Config.UseTls && this.Stream is SslStream;
 		public Jid Jid { get; }
+
+		protected volatile bool IsClosed, IsPaused;
 
 		public event AsyncEventHandler<WarfaceClientEventArgs> Connected
 		{
@@ -56,39 +58,41 @@ namespace Warface
 
 		public WarfaceClient(WarfaceClientConfiguration config)
 		{
-			this.config = config;
+			this.Config = config;
 
-			if (string.IsNullOrEmpty(this.config.ConnectServer))
-				throw new ArgumentNullException(nameof(this.config.ConnectServer));
+			if (string.IsNullOrEmpty(this.Config.ConnectServer))
+				throw new ArgumentNullException(nameof(this.Config.ConnectServer));
 
-			if (string.IsNullOrEmpty(this.config.Username))
-				throw new ArgumentNullException(nameof(this.config.Username));
+			if (string.IsNullOrEmpty(this.Config.Username))
+				throw new ArgumentNullException(nameof(this.Config.Username));
 
-			if (string.IsNullOrEmpty(this.config.Password))
-				throw new ArgumentNullException(nameof(this.config.Password));
+			if (string.IsNullOrEmpty(this.Config.Password))
+				throw new ArgumentNullException(nameof(this.Config.Password));
 
-			if (string.IsNullOrEmpty(this.config.Version))
-				throw new ArgumentNullException(nameof(this.config.Version));
+			if (string.IsNullOrEmpty(this.Config.Version))
+				throw new ArgumentNullException(nameof(this.Config.Version));
 
-			this.Jid = new Jid($"{this.config.Username}@{this.config.Server}/GameClient");
+			this.Jid = new Jid($"{this.Config.Username}@{this.Config.Server}/GameClient");
 			this.Setup();
 		}
 
 		protected internal void Setup()
 		{
-			this.socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
-			this.parser = new StreamParser();
-			this.parser.OnStreamStart += async (s, e) => await this.HandleStreamStartAsync(e as XmppStream).ConfigureAwait(false);
-			this.parser.OnStreamEnd += async (s, e) => await this.HandleStreamEndAsync(e as XmppStream).ConfigureAwait(false);
-			this.parser.OnStreamElement += async (s, e) => await this.HandleStreamElementAsync(e as Element).ConfigureAwait(false);
-			this.parser.OnStreamError += async (s, e) => await this.HandleStreamErrorAsync(e).ConfigureAwait(false);
+			this.Socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+			this.Parser = new StreamParser();
+			this.Parser.OnStreamStart += async (s, e) => await this.HandleStreamStartAsync(e as XmppStream).ConfigureAwait(false);
+			this.Parser.OnStreamEnd += async (s, e) => await this.HandleStreamEndAsync(e as XmppStream).ConfigureAwait(false);
+			this.Parser.OnStreamElement += async (s, e) => await this.HandleStreamElementAsync(e as Element).ConfigureAwait(false);
+			this.Parser.OnStreamError += async (s, e) => await this.HandleStreamErrorAsync(e).ConfigureAwait(false);
 		}
+
+		#region Client: Connection Management
 
 		public Task ConnectAsync()
 		{
-			if (this.closed)
+			if (this.IsClosed)
 			{
-				this.closed = this.paused = false;
+				this.IsClosed = this.IsPaused = false;
 				this.Setup();
 			}
 
@@ -98,30 +102,30 @@ namespace Warface
 
 		public async Task DisconnectAsync()
 		{
-			if (this.closed)
+			if (this.IsClosed)
 				return;
 
-			this.closed = this.paused = true;
+			this.IsClosed = this.IsPaused = true;
 
-			if (this.crypto != null)
-				this.crypto.Dispose();
+			if (this.Crypto != null)
+				this.Crypto.Dispose();
 
-			if (this.parser != null)
+			if (this.Parser != null)
 			{
-				this.parser.Reset();
-				this.parser = null;
+				this.Parser.Reset();
+				this.Parser = null;
 			}
 
-			if (this.stream != null)
+			if (this.Stream != null)
 			{
-				this.stream.Dispose();
-				this.stream = null;
+				this.Stream.Dispose();
+				this.Stream = null;
 			}
 
-			if (this.socket != null)
+			if (this.Socket != null)
 			{
-				this.socket.Dispose();
-				this.socket = null;
+				this.Socket.Dispose();
+				this.Socket = null;
 			}
 
 			await this._disconnectedEvent.InvokeAsync(new WarfaceClientEventArgs { Client = this });
@@ -131,17 +135,12 @@ namespace Warface
 		{
 			try
 			{
-				await this.socket.ConnectAsync(this.config.ConnectServer, this.config.Port);
+				await this.Socket.ConnectAsync(this.Config.ConnectServer, this.Config.Port);
 				await this._connectedEvent.InvokeAsync(new WarfaceClientEventArgs { Client = this });
 
-				this.stream = new NetworkStream(this.socket, true);
+				this.Stream = new NetworkStream(this.Socket, true);
 				_ = Task.Factory.StartNew(async () => await this.BeginReceiveAsync());
-
-				await this.SendAsync(new XmppStream
-				{
-					To = new Jid(this.config.Server),
-					Version = "1.0",
-				}.StartTag());
+				await this.ResetStreamAsync().ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -150,17 +149,29 @@ namespace Warface
 			}
 		}
 
+		#endregion
+
+		#region Socket: Handle Receive/Send
+
 		internal Task SendAsync(string str)
 		{
-			Trace.TraceInformation($"send >>:\n{str}\n");
-			_ = Task.Factory.StartNew(async () => await this.SendInternalAsync(str.GetBytes()));
+			_ = Task.Factory.StartNew(async () =>
+			{
+				await this.SendInternalAsync(str.GetBytes());
+				Utilities.LogVerbose(this, $"send >>:\n{str}\n");
+			});
+
 			return Task.CompletedTask;
 		}
 
 		internal Task SendAsync(Element e)
 		{
-			Trace.TraceInformation($"send >>\n{e.ToString(true, 2)}\n");
-			_ = Task.Factory.StartNew(async () => await this.SendInternalAsync(e.GetBytes()));
+			_ = Task.Factory.StartNew(async () =>
+			{
+				await this.SendInternalAsync(e.GetBytes());
+				Utilities.LogVerbose(this, $"send >>:\n{e.ToString(true, 2)}\n");
+			});
+
 			return Task.CompletedTask;
 		}
 
@@ -172,16 +183,16 @@ namespace Warface
 			{
 				try
 				{
-					if (!this.config.Protect.UseProtect)
-						await this.stream.WriteAsync(buffer, 0, buffer.Length);
+					if (!this.Config.Protect.UseProtect)
+						await this.Stream.WriteAsync(buffer, 0, buffer.Length);
 					else
 					{
 						var packet = new Packet(type, buffer);
 
-						if (type == PacketType.Plain && this.crypto?.IsInitialized == true)
-							packet = packet.EncryptPacket(this.crypto);
+						if (type == PacketType.Plain && this.Crypto?.IsInitialized == true)
+							packet.Encrypt(this.Crypto);
 
-						await this.stream.WritePacketAsync(packet);
+						await this.Stream.WritePacketAsync(packet);
 					}
 				}
 				catch (Exception ex)
@@ -198,33 +209,33 @@ namespace Warface
 
 			try
 			{
-				while (!this.closed)
+				while (!this.IsClosed)
 				{
-					if (!this.paused)
+					if (!this.IsPaused)
 					{
-						if (this.config.Protect.UseProtect)
+						if (this.Config.Protect.UseProtect)
 						{
-							var packet = await this.stream.ReadPacketAsync();
+							var packet = await this.Stream.ReadPacketAsync();
 
-							if (packet.BufferSize <= 0)
+							if (packet == null)
 								await this.DisconnectAsync().ConfigureAwait(false);
 							else
 							{
-								if (this.crypto != null && packet.Type == PacketType.Encrypted)
-									packet = packet.DecryptPacket(this.crypto);
+								if (this.Crypto?.IsInitialized == true && packet.Type == PacketType.Encrypted)
+									packet.Decrypt(this.Crypto);
 
 								if (packet.Type == PacketType.Plain)
-									this.parser.Push(packet.Buffer, 0, packet.BufferSize);
+									this.Parser.Push(packet.Buffer, 0, packet.BufferSize);
 								else
 								{
 									switch (packet.Type)
 									{
 										case PacketType.ServerKey:
-											await this.HandleServerKeyAsync(packet.Buffer);
+											await this.HandleServerKeyAsync(packet.Buffer).ConfigureAwait(false);
 											break;
 
 										default:
-											Trace.TraceWarning($"Unknown packet type: {packet.Type} [{packet.BufferSize}]");
+											this.LogWarning($"Received unknown packet type {packet.Type}. (size={packet.BufferSize})");
 											break;
 									}
 								}
@@ -234,10 +245,10 @@ namespace Warface
 						{
 							int count;
 
-							if ((count = await this.stream.ReadAsync(buffer, 0, buffer.Length)) <= 0)
+							if ((count = await this.Stream.ReadAsync(buffer, 0, buffer.Length)) <= 0)
 								await this.DisconnectAsync().ConfigureAwait(false);
 							else
-								this.parser.Push(buffer, 0, count);
+								this.Parser.Push(buffer, 0, count);
 						}
 					}
 
@@ -250,6 +261,10 @@ namespace Warface
 				await this.DisconnectAsync().ConfigureAwait(false);
 			}
 		}
+
+		#endregion
+
+		#region Protect: Handle Server Key
 
 		[StructLayout(LayoutKind.Explicit)]
 		internal struct ServerKeyUnionStruct
@@ -280,27 +295,31 @@ namespace Warface
 
 		protected async Task HandleServerKeyAsync(byte[] buffer)
 		{
-			this.paused = true;
+			this.IsPaused = true;
 
-			var salt = new ServerKeyUnionStruct(buffer).value;
-			Trace.TraceInformation($"Recv server key! salt={salt}");
+			Array.Reverse(buffer);
 
-			this.crypto = new WarfaceCryptoProvider(salt, this.config.Version,
-				this.config.Protect.CryptKey, this.config.Protect.CryptIv);
+			var union = new ServerKeyUnionStruct(buffer);
 
-			if (this.crypto?.IsInitialized == false)
+			this.Crypto = new WarfaceCryptoProvider(union.value, this.Config.Version,
+				this.Config.Protect.CryptKey, this.Config.Protect.CryptIv);
+
+			if (this.Crypto?.IsInitialized == false)
 			{
+				this.LogWarning("Cannot initialize native crypto service! Disconnecting from the server.");
 				await this.DisconnectAsync().ConfigureAwait(false);
 				return;
 			}
 
 			await this.SendInternalAsync(default, PacketType.ClientAck, true);
-			this.paused = false;
+			this.IsPaused = false;
 		}
+
+		#endregion
 
 		Task HandleStreamStartAsync(XmppStream stream)
 		{
-			Trace.TraceInformation($"recv <<:\n{stream.StartTag()}\n");
+			this.LogVerbose($"recv <<:\n{stream.StartTag()}\n");
 			this.StreamId = stream.Id;
 			this.StreamVersion = stream.Version;
 			return Task.CompletedTask;
@@ -308,20 +327,96 @@ namespace Warface
 
 		async Task HandleStreamEndAsync(XmppStream stream)
 		{
-			Trace.TraceInformation($"recv <<:\n{stream.EndTag()}\n");
+			this.LogVerbose($"recv <<:\n{stream.EndTag()}\n");
 			await this.DisconnectAsync();
 		}
 
+		volatile bool /*WasBindRequested,*/ WasAuthRequested, WasTlsHandshakeRequested;
+
+		public bool SupportStartTls => !this.IsTlsStarted && this.Config.UseTls;
+
 		async Task HandleStreamElementAsync(Element e)
 		{
-			Trace.TraceInformation($"recv <<:\n{e.ToString(true, 2)}\n");
-			await this.DisconnectAsync();
+			this.LogVerbose($"recv <<:\n{e.ToString(true, 2)}\n");
+
+			if (e is StreamFeatures features)
+			{
+				if (!this.IsAuthenticated)
+				{
+					if ((this.SupportStartTls && features.SupportsStartTls) && !this.IsTlsStarted)
+					{
+						this.WasTlsHandshakeRequested = true;
+						await this.SendAsync(new StartTls());
+						return;
+					}
+
+					if (this.WasAuthRequested) // an auth request already sent!
+						return;
+
+					var auth = new Auth { Value = this.Config.BuildSaslArguments() };
+					auth.SetAttribute("mechanism", "WARFACE");
+
+					this.WasAuthRequested = true;
+					await this.SendAsync(auth);
+				}
+				else
+				{
+					if (features.SupportsBind)
+					{
+						// TOOD: Send bind request
+					}
+				}
+			}
+			else if (e is Proceed && this.SupportStartTls)
+			{
+				if (!this.WasTlsHandshakeRequested)
+				{
+					this.LogWarning("An handshake proceed received but no tls handshaek request was sent before.");
+					return;
+				}
+
+				await this.DoTlsHandshakeAsync().ConfigureAwait(false);
+			}
+		}
+
+		internal async Task ResetStreamAsync()
+		{
+			this.Parser.Reset();
+			await this.SendAsync(new XmppStream { To = new Jid(this.Config.Server), Version = "1.0", }.StartTag());
 		}
 
 		async Task HandleStreamErrorAsync(Exception ex)
 		{
 			await this._erroredEvent.InvokeAsync(new WarfaceClientErrorEventArgs { Client = this, Exception = ex });
 			await this.DisconnectAsync();
+		}
+
+		async Task DoTlsHandshakeAsync()
+		{
+			try
+			{
+				this.IsPaused = true;
+
+				await this.Stream.FlushAsync();
+
+				this.Stream = new SslStream(this.Stream, true, (a, b, c, d) =>
+				{
+					if (!this.Config.PerformCertificateValidation)
+						return true;
+
+					return this.Config.CertificateValidationCallback(a, b, c, d);
+				});
+
+				await ((SslStream)this.Stream).AuthenticateAsClientAsync(this.Config.ConnectServer).ConfigureAwait(false);
+				this.IsPaused = false;
+
+				await this.ResetStreamAsync().ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				await this._erroredEvent.InvokeAsync(new WarfaceClientErrorEventArgs { Client = this, Exception = ex });
+				await this.DisconnectAsync().ConfigureAwait(false);
+			}
 		}
 	}
 }

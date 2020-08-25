@@ -9,28 +9,28 @@ namespace Warface.Entities.Network
 	{
 		Plain = 0,
 		Encrypted = 1,
-		ClientKey = 2,
+		//ClientKey = 2,
 		ServerKey = 3,
 		ClientAck = 4
 	}
 
-	public struct Packet
+	public class Packet
 	{
-		public PacketType Type { get; }
-		public byte[] Buffer { get; }
+		public PacketType Type { get; internal set; }
+		public byte[] Buffer { get; internal set; }
 		public int BufferSize => this.Buffer?.Length ?? 0;
 
-		public Packet(PacketType type, byte[] buffer = default) : this()
+		public Packet(PacketType type, byte[] buffer = default)
 		{
 			this.Type = type;
-			this.Buffer = buffer;
+			this.Buffer = buffer ?? Array.Empty<byte>();
 		}
 
 		internal byte[] Serialize()
 		{
 			var buffer = new byte[12 + this.BufferSize];
 
-			var magicBuff = BitConverter.GetBytes(PacketExtensions.Magic);
+			var magicBuff = BitConverter.GetBytes(PacketUtilities.Magic);
 			var lengthBuff = BitConverter.GetBytes(this.BufferSize);
 			var typeBuff = BitConverter.GetBytes((int)this.Type);
 
@@ -43,9 +43,14 @@ namespace Warface.Entities.Network
 
 			return buffer;
 		}
+
+		public override int GetHashCode()
+		{
+			return HashCode.Combine(this.Type, this.Buffer);
+		}
 	}
 
-	public static class PacketExtensions
+	public static class PacketUtilities
 	{
 		/// <summary>
 		/// Stream Magic Header
@@ -71,35 +76,47 @@ namespace Warface.Entities.Network
 		public static async Task WritePacketAsync(this Stream stream, Packet packet)
 		{
 			var result = packet.Serialize();
-			await stream.WriteAsync(result, 0, result.Length);
+			await stream.WriteAsync(result, 0, result.Length).ConfigureAwait(false);
 		}
 
-		public static Packet EncryptPacket(this Packet p, WarfaceCryptoProvider provider)
+		public static void Encrypt(this Packet p, WarfaceCryptoProvider provider)
 		{
 			if (p.Type != PacketType.Plain)
-				throw new ArgumentException("Cannot encrypt packet, because its not valid packet to encrypt.");
+				throw new ArgumentException("Cannot encrypt packet, because it is not valid packet to encrypt.", nameof(p));
 
 			if (p.BufferSize == 0)
-				throw new ArgumentException("Cannot encrypt packet, because it has zero length.");
+				throw new ArgumentException("Cannot encrypt packet, because it has zero length.", nameof(p));
 
-			var buffer = new byte[p.BufferSize];
-			Array.Copy(p.Buffer, 0, buffer, 0, buffer.Length);
-			provider.Encrypt(buffer);
-			return new Packet(PacketType.Encrypted, buffer);
+			//var buffer = new byte[p.BufferSize];
+			//Array.Copy(p.Buffer, 0, buffer, 0, buffer.Length);
+			//provider.Encrypt(buffer);
+
+			//return new Packet(PacketType.Encrypted, buffer);
+
+			var data = new byte[p.BufferSize];
+			Array.Copy(p.Buffer, 0, data, 0, data.Length);
+			provider.Encrypt(data);
+
+			p.Buffer = data;
+			p.Type = PacketType.Encrypted;
 		}
 
-		public static Packet DecryptPacket(this Packet p, WarfaceCryptoProvider provider)
+		public static void Decrypt(this Packet p, WarfaceCryptoProvider provider)
 		{
 			if (p.Type != PacketType.Encrypted)
-				throw new ArgumentException("Cannot decrypt packet, because it isn't encrypted.");
+				throw new ArgumentException("Cannot decrypt packet, because it is not encrypted.", nameof(p));
 
 			if (p.BufferSize == 0)
-				throw new ArgumentException("Cannot decrypt packet, because it has zero length.");
+				throw new ArgumentException("Cannot decrypt packet, because it has zero length.", nameof(p));
 
-			var buffer = new byte[p.BufferSize];
-			Array.Copy(p.Buffer, 0, buffer, 0, buffer.Length);
-			provider.Decrypt(buffer);
-			return new Packet(PacketType.Plain, buffer);
+			//var buffer = new byte[p.BufferSize];
+			//Array.Copy(p.Buffer, 0, buffer, 0, buffer.Length);
+			//provider.Decrypt(buffer);
+
+			//return new Packet(PacketType.Plain, buffer);
+
+			provider.Decrypt(p.Buffer);
+			p.Type = PacketType.Plain;
 		}
 
 		static bool ExtractPacketInformation(byte[] buffer, out int length, out PacketType type)

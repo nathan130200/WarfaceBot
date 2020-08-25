@@ -9,64 +9,47 @@ namespace Warface.Security.Cryptography
 	{
 		private IntPtr Handle;
 		private volatile bool Disposed;
-		private readonly int Salt;
-		private readonly string Version;
-		private readonly string Key;
-		private readonly string Iv;
 
-		public bool IsInitialized => this.Handle != IntPtr.Zero;
+		public bool IsInitialized =>
+			this.Handle != IntPtr.Zero;
 
 		public WarfaceCryptoProvider(int salt, string version, string key, string iv)
 		{
-			this.Salt = salt;
-			this.Version = version;
-			this.Key = key;
-			this.Iv = iv;
-
-			this.Handle = WarfaceCryptoApi.Create(this.Salt, this.Version, this.Key, this.Iv);
+			this.Handle = WarfaceCryptoApi.Crypto_Initialize(salt, version, key, iv);
 		}
 
-		public void Encrypt(byte[] buffer)
+		public unsafe void Encrypt(byte[] buffer)
 		{
 			this.EnsureNotDisposed();
 
-			var ptr = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+			var pGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
 
 			try
 			{
-				WarfaceCryptoApi.Encrypt(this.Handle, ptr.AddrOfPinnedObject(), buffer.Length);
+				WarfaceCryptoApi.Crypto_Encrypt(this.Handle, pGC.AddrOfPinnedObject(), buffer.Length);
 			}
 			finally
 			{
-				ptr.Free();
+				pGC.Free();
 			}
 		}
 
-		public void Decrypt(byte[] buffer)
+		public unsafe void Decrypt(byte[] buffer)
 		{
-			this.EnsureNotDisposed();
-
-			var ptr = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+			var pGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
 
 			try
 			{
-				WarfaceCryptoApi.Decrypt(this.Handle, ptr.AddrOfPinnedObject(), buffer.Length);
+				WarfaceCryptoApi.Crypto_Decrypt(this.Handle, pGC.AddrOfPinnedObject(), buffer.Length);
 			}
 			finally
 			{
-				ptr.Free();
+				pGC.Free();
 			}
 		}
 
 		public override int GetHashCode()
-		{
-			return HashCode.Combine(this.Salt, this.Version);
-		}
-
-		public override string ToString()
-		{
-			return $"Salt={this.Salt}; Version={this.Version}";
-		}
+			=> this.Handle.GetHashCode();
 
 		void EnsureNotDisposed()
 		{
@@ -82,7 +65,7 @@ namespace Warface.Security.Cryptography
 
 			if (this.Handle != IntPtr.Zero)
 			{
-				WarfaceCryptoApi.Release(this.Handle);
+				WarfaceCryptoApi.Crypto_Release(this.Handle);
 				this.Handle = IntPtr.Zero;
 			}
 		}

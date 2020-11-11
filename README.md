@@ -1,9 +1,8 @@
 # Warface Bot
 Yet another headless XMPP client emulation layer for [Warface](https://pc.warface.com).
 
-
-# Archives
-Due some players abusing of bot (farm battlepass points, etc) mygames released new authentication mechanism to prevent bots from login into server, so this repository will be archived, if you find way to bypass/implement the new auth mechanism, you can submit an PR.
+# Archived
+Due some players abusing of bot (farming battlepass points, etc) mygames released new authentication mechanism to prevent bots from login into server, so this repository will be on hold for a long time, if you find way to bypass/implement the new auth mechanism, you can submit an PR.
 
 # Remarks
 This is an C#/.NET Core port to original [Levak/warfacebot](https://github.com/Levak/warfacebot) - Thanks levak!
